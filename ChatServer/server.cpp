@@ -1,4 +1,4 @@
-/*!
+ï»¿/*!
  * Simple chat program (server side).cpp - http://github.com/hassanyf
  * Version - 2.0.1
  *
@@ -25,10 +25,13 @@ using std::cerr;
 using std::endl;
 
 enum ePort { SERVER_PORT = 54000 };
+enum eBufSize { BUF_SIZE = 4096 };
+
+DWORD WINAPI makeThread(void* data);
 
 int main()
 {
-	// [1] WinSock ÃÊ±âÈ­
+	// [1] WinSock ì´ˆê¸°í™”
 	// MAKEWORD => WORD [ 1byte ][ 1byte ]
 	WSADATA wsaData;
 	int iniResult = WSAStartup(MAKEWORD(2, 2), &wsaData);
@@ -39,7 +42,7 @@ int main()
 	
 
 
-	// [2] Listen ¼ÒÄÏ »ı¼º
+	// [2] Listen ì†Œì¼“ ìƒì„±
 	// af(adress family) : AF_INET(IPv4), AF_INET6(IPv6)
 	// type : SOCK_STREAM(TCP), SOCK_DGRAM(UDP)
 	// protocol : IPPROTO_TCP(TCP), IPPROTO_UDP(UDP)
@@ -51,11 +54,11 @@ int main()
 	}
 
 
-	// [3] ¼ÒÄÏ¿¡ IPÁÖ¼Ò¿Í Port¹øÈ£ ¹ÙÀÎµù
-	// INADDR_ANY : ¸ğµç NICÀÇ IPÁÖ¼Ò¿¡ ¹ÙÀÎµù
-	// htonl : È£½ºÆ®·ÎºÎÅÍ ºò ¿£µğ¾ÈÀÎ TCP/IP ³×Æ®¿öÅ© ¹ÙÀÌÆ® ¼ø¼­·Î u_longÀ» ¹İÈ¯
-	// htons : È£½ºÆ®·ÎºÎÅÍ ºò ¿£µğ¾ÈÀÎ TCP/IP ³×Æ®¿öÅ© ¹ÙÀÌÆ® ¼ø¼­·Î u_shortÀ» ¹İÈ¯
-	// ³×Æ®¿öÅ© ¹ÙÀÌÆ® ¼ø¼­´Â ºò ¿£µğ¾È!
+	// [3] ì†Œì¼“ì— IPì£¼ì†Œì™€ Portë²ˆí˜¸ ë°”ì¸ë”©
+	// INADDR_ANY : ëª¨ë“  NICì˜ IPì£¼ì†Œì— ë°”ì¸ë”©
+	// htonl : í˜¸ìŠ¤íŠ¸ë¡œë¶€í„° ë¹… ì—”ë””ì•ˆì¸ TCP/IP ë„¤íŠ¸ì›Œí¬ ë°”ì´íŠ¸ ìˆœì„œë¡œ u_longì„ ë°˜í™˜
+	// htons : í˜¸ìŠ¤íŠ¸ë¡œë¶€í„° ë¹… ì—”ë””ì•ˆì¸ TCP/IP ë„¤íŠ¸ì›Œí¬ ë°”ì´íŠ¸ ìˆœì„œë¡œ u_shortì„ ë°˜í™˜
+	// ë„¤íŠ¸ì›Œí¬ ë°”ì´íŠ¸ ìˆœì„œëŠ” ë¹… ì—”ë””ì•ˆ!
 	sockaddr_in hint{};
 	hint.sin_family = AF_INET;
 	hint.sin_addr.S_un.S_addr = htonl(INADDR_ANY);
@@ -70,7 +73,7 @@ int main()
  	}
 
 
-	// [4] ¼ÒÄÏÀÌ ¿¬°áÀ» accept ÇÒ ¼ö ÀÖ´Â »óÅÂ°¡ µÇµµ·ÏÇÔ (listen)
+	// [4] ì†Œì¼“ì´ ì—°ê²°ì„ accept í•  ìˆ˜ ìˆëŠ” ìƒíƒœê°€ ë˜ë„ë¡í•¨ (listen)
 	int listenResult = listen(listenSock, SOMAXCONN);
 	if (listenResult == SOCKET_ERROR) {
 		cerr << "Can't listen a socket! Quiting" << endl;
@@ -79,68 +82,76 @@ int main()
 		return -1;
 	}
 
-
-	// [5] Å¬¶óÀÌ¾ğÆ® ¿äÃ»ÀÌ µé¾î¿À¸é accept ÇÔ¼ö¸¦ ÅëÇØ ¿¬°áÀ» ¼ö¶ô
 	sockaddr_in clientSockInfo;
 	int clientSize = sizeof(clientSockInfo);
-
-	SOCKET clientSocket = accept(listenSock, reinterpret_cast<sockaddr*>(&clientSockInfo), &clientSize);
-	if (clientSocket == INVALID_SOCKET) {
-		cerr << "Can't accpet a socket! Quiting" << endl;
-		closesocket(listenSock);
-		WSACleanup();
-		return -1;
-	}
-
-	// [6] ¿¬°áÀÌ µÇ¾úÀ¸¸é listening ÁßÀÎ ¼ÒÄÏÀ» ´İ½À´Ï´Ù. (°è¼ÓÇØ¼­ ´Ù¸¥ Å¬¶óÀÌ¾ğÆ® ¿¬°áÀ» ¹Ş´Â´Ù¸é »ı·«)
-	int closeResult = closesocket(listenSock);
-
-	// [7] Å¬¶óÀÌ¾ğÆ®ÀÇ ¿äÃ»À» ¹Ş°í ¼öÇàÇÒ µ¿ÀÛÀ» ±¸Çö
-	char host[NI_MAXHOST];		// Å¬¶óÀÌ¾ğÆ® host ÀÌ¸§
-	char service[NI_MAXHOST];	// Å¬¶óÀÌ¾ğÆ® PORT ¹øÈ£
-	ZeroMemory(host, NI_MAXHOST);	// memset(host, 0, NI_MAXHOST)°ú µ¿ÀÏ
-	ZeroMemory(service, NI_MAXHOST);
-
-	// clientSockInfo¿¡ ÀúÀåµÈ IP ÁÖ¼Ò¸¦ ÅëÇØ µµ¸ŞÀÎ Á¤º¸¸¦ ¾ò½À´Ï´Ù.
-	// host ÀÌ¸§Àº host¿¡, Æ÷Æ® ¹øÈ£´Â service¿¡ ÀúÀåµË´Ï´Ù.
-	// getnameinfo()´Â ¼º°ø½Ã 0À» ¹İÈ¯ÇÕ´Ï´Ù. ½ÇÆĞ½Ã 0ÀÌ ¾Æ´Ñ °ªÀ» ¹İÈ¯ÇÕ´Ï´Ù.
-	if (getnameinfo((sockaddr*)&clientSockInfo, sizeof(clientSockInfo), host, NI_MAXHOST, service, NI_MAXSERV, 0) == 0) {
-		cout << host << " connected On Port " << service << endl;
-	}
-	else {
-		inet_ntop(AF_INET, &clientSockInfo.sin_addr, host, NI_MAXHOST);
-		cout << host << " connected On Port " << ntohs(clientSockInfo.sin_port) << endl;
-	}
-
-	// While Loop : Å¬¶óÀÌ¾ğÆ®ÀÇ ¸Ş¼¼Áö¸¦ ¹Ş¾Æ¼­ Ãâ·Â ÈÄ, Å¬¶óÀÌ¾ğÆ®¿¡°Ô ´Ù½Ã º¸³À´Ï´Ù.
-	enum eBufSize { BUF_SIZE = 4096 };
-	char buf[BUF_SIZE];
+	HANDLE hThread;
 
 	while (true) {
-		ZeroMemory(buf, BUF_SIZE);
-
-		// Wait for cleint to send data
-		// ¸Ş¼¼Áö¸¦ ¼º°øÀûÀ¸·Î ¹Ş¾ÒÀ¸¸é, recv ÇÔ¼ö´Â ¸Ş¼¼ÁöÀÇ Å©±â¸¦ ¹İÈ¯ÇÑ´Ù.
-		int bytesReceived = recv(clientSocket, buf, BUF_SIZE, 0);
-		if (bytesReceived == SOCKET_ERROR) {
-			cerr << "Error in recv(). Quitting" << endl;
-			break;
-		}
-		else if (bytesReceived == 0) {
-			cout << "Client disconnected " << endl;
-			break;
+		// [5] í´ë¼ì´ì–¸íŠ¸ ìš”ì²­ì´ ë“¤ì–´ì˜¤ë©´ accept í•¨ìˆ˜ë¥¼ í†µí•´ ì—°ê²°ì„ ìˆ˜ë½
+		SOCKET clientSocket = accept(listenSock, reinterpret_cast<sockaddr*>(&clientSockInfo), &clientSize);
+		if (clientSocket == INVALID_SOCKET) {
+			cerr << "Can't accpet a socket! Quiting" << endl;
+			closesocket(listenSock);
+			WSACleanup();
+			return -1;
 		}
 
-		// Echo message back to client
-		cout << buf << endl;
-		send(clientSocket, buf, bytesReceived + 1, 0);
+		// [6] ì—°ê²°ì´ ë˜ì—ˆìœ¼ë©´ listening ì¤‘ì¸ ì†Œì¼“ì„ ë‹«ìŠµë‹ˆë‹¤. (ê³„ì†í•´ì„œ ë‹¤ë¥¸ í´ë¼ì´ì–¸íŠ¸ ì—°ê²°ì„ ë°›ëŠ”ë‹¤ë©´ ìƒëµ)
+		//int closeResult = closesocket(listenSock);
+
+		// [7] í´ë¼ì´ì–¸íŠ¸ì˜ ìš”ì²­ì„ ë°›ê³  ìˆ˜í–‰í•  ë™ì‘ì„ êµ¬í˜„
+		//char host[NI_MAXHOST];		// í´ë¼ì´ì–¸íŠ¸ host ì´ë¦„
+		//char service[NI_MAXHOST];	// í´ë¼ì´ì–¸íŠ¸ PORT ë²ˆí˜¸
+		//ZeroMemory(host, NI_MAXHOST);	// memset(host, 0, NI_MAXHOST)ê³¼ ë™ì¼
+		//ZeroMemory(service, NI_MAXHOST);
+
+		//// clientSockInfoì— ì €ì¥ëœ IP ì£¼ì†Œë¥¼ í†µí•´ ë„ë©”ì¸ ì •ë³´ë¥¼ ì–»ìŠµë‹ˆë‹¤.
+		//// host ì´ë¦„ì€ hostì—, í¬íŠ¸ ë²ˆí˜¸ëŠ” serviceì— ì €ì¥ë©ë‹ˆë‹¤.
+		//// getnameinfo()ëŠ” ì„±ê³µì‹œ 0ì„ ë°˜í™˜í•©ë‹ˆë‹¤. ì‹¤íŒ¨ì‹œ 0ì´ ì•„ë‹Œ ê°’ì„ ë°˜í™˜í•©ë‹ˆë‹¤.
+		//if (getnameinfo((sockaddr*)&clientSockInfo, sizeof(clientSockInfo), host, NI_MAXHOST, service, NI_MAXSERV, 0) == 0) {
+		//	cout << host << " connected On Port " << service << endl;
+		//}
+		//else {
+		//	inet_ntop(AF_INET, &clientSockInfo.sin_addr, host, NI_MAXHOST);
+		//	cout << host << " connected On Port " << ntohs(clientSockInfo.sin_port) << endl;
+		//}
+
+		// While Loop : í´ë¼ì´ì–¸íŠ¸ì˜ ë©”ì„¸ì§€ë¥¼ ë°›ì•„ì„œ ì¶œë ¥ í›„, í´ë¼ì´ì–¸íŠ¸ì—ê²Œ ë‹¤ì‹œ ë³´ëƒ…ë‹ˆë‹¤.
+
+		hThread = CreateThread(NULL, 0, makeThread, (void*)clientSocket, 0, NULL);
+		CloseHandle(hThread);
 	}
 
 	// Close the client socket
-	closesocket(clientSocket);
+	closesocket(listenSock);
 
 	// Cleanup winsock <-> WSAStartup
 	WSACleanup();
 
+	return 0;
+}
+
+DWORD WINAPI makeThread(void* data) {
+	SOCKET socket = (SOCKET)data;
+
+	// Read Data
+	char messageBuffer[BUF_SIZE];
+	ZeroMemory(messageBuffer, BUF_SIZE);
+	int receiveBytes;
+	while (receiveBytes = recv(socket, messageBuffer, BUF_SIZE, 0)) {
+		if (receiveBytes > 0) {
+			cout << "TRACE - Receive message : " << messageBuffer << " (byte : " << strlen(messageBuffer) << ")" << endl;
+			// Write Data
+			int sendBytes = send(socket, messageBuffer, strlen(messageBuffer), 0);
+			if (sendBytes > 0) {
+				cout << "TRACE - Send message : " << messageBuffer << " (byte : " << sendBytes << ")" << endl;
+			}
+		}
+		else {
+			break;
+		}
+	}
+
+	closesocket(socket);
 	return 0;
 }
